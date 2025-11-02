@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">DotsAndBoxes</string>
+    <string name="two_players">2 Players</string>
+    <string name="vs_computer">Vs Computer</string>
+</resources>
