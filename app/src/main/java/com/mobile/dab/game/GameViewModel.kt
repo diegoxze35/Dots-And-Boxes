@@ -1,14 +1,13 @@
 package com.mobile.dab.game
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlin.system.measureTimeMillis
 
 // UI state exposed to Compose
 data class GameUiState(
@@ -17,7 +16,10 @@ data class GameUiState(
     val placedLines: Set<Line> = emptySet(),
     val lineOwners: Map<Line, Int> = emptyMap(), // owner index for each placed line
     val boxOwners: Map<Box, Int> = emptyMap(),
-    val players: List<Player> = listOf(Player(0, "Player 1", PlayerType.HUMAN), Player(1, "Player 2", PlayerType.COMPUTER)),
+    val players: List<Player> = listOf(
+        Player(0, "Player 1", PlayerType.HUMAN),
+        Player(1, "Player 2", PlayerType.COMPUTER)
+    ),
     val currentPlayerIndex: Int = 0,
     val scores: Map<Int, Int> = mapOf(0 to 0, 1 to 0),
     val isGameOver: Boolean = false,
@@ -44,8 +46,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startNewGame(vsComputer: Boolean) {
-        val defaultPlayers = if (vsComputer) listOf(Player(0, "You", PlayerType.HUMAN), Player(1, "Computer", PlayerType.COMPUTER))
-        else listOf(Player(0, "Player 1", PlayerType.HUMAN), Player(1, "Player 2", PlayerType.HUMAN))
+        val defaultPlayers = if (vsComputer) listOf(
+            Player(0, "You", PlayerType.HUMAN),
+            Player(1, "Computer", PlayerType.COMPUTER)
+        )
+        else listOf(
+            Player(0, "Player 1", PlayerType.HUMAN),
+            Player(1, "Player 2", PlayerType.HUMAN)
+        )
         _uiState.value = _uiState.value.copy(
             placedLines = emptySet(),
             lineOwners = emptyMap(),
@@ -67,10 +75,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun toggleVsComputer() {
-        startNewGame(vsComputer = !_uiState.value.isVsComputer)
-    }
-
     fun makeMove(line: Line) {
         // Optimistic: reflect the move immediately in uiState so UI sees it right away
         val current = _uiState.value
@@ -79,8 +83,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
         // Apply optimistic placed line and owner (current player)
         val optimisticOwners = current.lineOwners + (line to current.currentPlayerIndex)
-        _uiState.value = current.copy(placedLines = current.placedLines + line, lineOwners = optimisticOwners)
-        android.util.Log.d("GameViewModel", "makeMove called optimistically for $line by player ${current.currentPlayerIndex}")
+        _uiState.value =
+            current.copy(placedLines = current.placedLines + line, lineOwners = optimisticOwners)
+        android.util.Log.d(
+            "GameViewModel",
+            "makeMove called optimistically for $line by player ${current.currentPlayerIndex}"
+        )
 
         // Continue processing game logic asynchronously
         viewModelScope.launch(Dispatchers.Default) {
@@ -89,14 +97,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
             // Defensive: if the line is no longer in the latest placed set, it means something removed it or it was invalid
             if (line !in latest.placedLines) {
-                android.util.Log.d("GameViewModel", "makeMove aborted: $line no longer present in placedLines")
+                android.util.Log.d(
+                    "GameViewModel",
+                    "makeMove aborted: $line no longer present in placedLines"
+                )
                 return@launch
             }
 
             // Compute completed boxes and scoring using the latest placed set
             val newPlaced = latest.placedLines
 
-            val completed = checkCompletedBoxes(line, latest.gridRows, latest.gridCols, latest.boxOwners.keys, newPlaced)
+            val completed = checkCompletedBoxes(
+                line,
+                latest.gridRows,
+                latest.gridCols,
+                latest.boxOwners.keys,
+                newPlaced
+            )
             val mutableBoxOwners = latest.boxOwners.toMutableMap()
             val scoresMutable = latest.scores.toMutableMap()
             // ensure line owner is set (in case optimistic wasn't present)
@@ -107,7 +124,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 for (b in completed) {
                     mutableBoxOwners[b] = latest.currentPlayerIndex
                 }
-                scoresMutable[latest.currentPlayerIndex] = (scoresMutable[latest.currentPlayerIndex] ?: 0) + completed.size
+                scoresMutable[latest.currentPlayerIndex] =
+                    (scoresMutable[latest.currentPlayerIndex] ?: 0) + completed.size
             }
 
             var nextPlayer = latest.currentPlayerIndex
@@ -129,7 +147,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 winner = winner
             )
 
-            android.util.Log.d("GameViewModel", "makeMove processed $line; completed=${completed.size}; next=$nextPlayer; isGameOver=$isGameOver")
+            Log.d(
+                "GameViewModel",
+                "makeMove processed $line; completed=${completed.size}; next=$nextPlayer; isGameOver=$isGameOver"
+            )
 
             if (isGameOver) {
                 val duration = System.currentTimeMillis() - startTime
@@ -171,7 +192,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         return completed >= totalBoxes
     }
 
-    private fun checkCompletedBoxes(line: Line, gridRows: Int, gridCols: Int, existingBoxes: Set<Box>, placedWithNew: Set<Line>): List<Box> {
+    private fun checkCompletedBoxes(
+        line: Line,
+        gridRows: Int,
+        gridCols: Int,
+        existingBoxes: Set<Box>,
+        placedWithNew: Set<Line>
+    ): List<Box> {
         val boxes = mutableListOf<Box>()
         // check neighboring boxes of the placed line
         if (line.orientation == Orientation.HORIZONTAL) {
@@ -224,9 +251,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    suspend fun loadHistory() {
-        val list = repo.getHistory()
-        _history.value = list
+    fun loadHistory() {
+        viewModelScope.launch {
+            val list = repo.getHistory()
+            _history.value = list
+        }
     }
 
     private fun makeAIMoveIfNeeded() {
@@ -236,7 +265,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             if (move != null) {
                 // small delay to simulate thinking
                 kotlinx.coroutines.delay(400)
-                android.util.Log.d("GameViewModel", "AI chose move $move")
+                Log.d("GameViewModel", "AI chose move $move")
                 makeMove(move)
             }
         }

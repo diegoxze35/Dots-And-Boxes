@@ -7,3 +7,6 @@ data object MainMenu
 
 @Serializable
 data object GameScreen
+
+@Serializable
+data object HistoryScreen
