@@ -25,42 +25,41 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.mobile.dab.bluetooth.BluetoothGameManager // <-- NUEVO
-import com.mobile.dab.bluetooth.BluetoothViewModel
-import com.mobile.dab.bluetooth.ConnectionStatus
-import com.mobile.dab.ui.composable.bluetooth.BluetoothLobbyScreen
-import com.mobile.dab.game.GameViewModel
+import com.mobile.dab.data.BluetoothGameManager
+import com.mobile.dab.domain.ConnectionStatus
+import com.mobile.dab.ui.composable.game.viewmodel.GameViewModel
+import com.mobile.dab.ui.BLUETOOTH_LOBBY
 import com.mobile.dab.ui.BluetoothLobby
 import com.mobile.dab.ui.GAME_SCREEN
 import com.mobile.dab.ui.GameScreen
+import com.mobile.dab.ui.HISTORY_SCREEN
 import com.mobile.dab.ui.HistoryScreen
 import com.mobile.dab.ui.MAIN_MENU
 import com.mobile.dab.ui.MainMenu
+import com.mobile.dab.ui.SAVED_GAMES_SCREEN
+import com.mobile.dab.ui.SavedGamesScreen
 import com.mobile.dab.ui.composable.TopGameAppBar
+import com.mobile.dab.ui.composable.bluetooth.BluetoothLobbyScreen
+import com.mobile.dab.ui.composable.bluetooth.viewmodel.BluetoothViewModel
 import com.mobile.dab.ui.composable.game.GamePlayScreen
 import com.mobile.dab.ui.composable.menu.MenuScreen
+import com.mobile.dab.ui.composable.saved.SavedGamesScreen
 import com.mobile.dab.ui.theme.DotsAndBoxesTheme
-import kotlinx.coroutines.flow.launchIn
-import kotlinx.coroutines.flow.onEach
 
-// Esta es la "Primera Versión" de MainActivity
 class MainActivity : ComponentActivity() {
 
     private val gameViewModel: GameViewModel by viewModels()
-    private val bluetoothViewModel: BluetoothViewModel by viewModels() // Todavía necesario
-
+    private val bluetoothViewModel: BluetoothViewModel by viewModels()
     private val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         arrayOf(
             Manifest.permission.BLUETOOTH_SCAN,
@@ -93,8 +92,6 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
                 permissionLauncher.launch(permissionsToRequest)
-            } else {
-                // El usuario no activó Bluetooth.
             }
         }
 
@@ -108,53 +105,35 @@ class MainActivity : ComponentActivity() {
     private var navController: NavHostController? = null
     private fun findNavController(): NavHostController? = navController
 
-    @SuppressLint("MissingPermission")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        // --- ELIMINADO: El GameViewModel lo hace internamente ahora ---
-        // lifecycleScope.launchWhenStarted {
-        //     bluetoothViewModel.incomingMove...
-        // }
 
         setContent {
             DotsAndBoxesTheme {
                 navController = rememberNavController()
                 val currentBackStackEntry by navController!!.currentBackStackEntryAsState()
-
                 val currentScreen = when {
                     currentBackStackEntry?.destination?.hasRoute<MainMenu>() == true -> MAIN_MENU
                     currentBackStackEntry?.destination?.hasRoute<GameScreen>() == true -> GAME_SCREEN
-                    currentBackStackEntry?.destination?.hasRoute<BluetoothLobby>() == true -> "BluetoothLobby"
+                    currentBackStackEntry?.destination?.hasRoute<BluetoothLobby>() == true -> BLUETOOTH_LOBBY
+                    currentBackStackEntry?.destination?.hasRoute<HistoryScreen>() == true -> HISTORY_SCREEN
+                    currentBackStackEntry?.destination?.hasRoute<SavedGamesScreen>() == true -> SAVED_GAMES_SCREEN
                     else -> ""
                 }
-
                 val gameState by gameViewModel.uiState.collectAsState()
-                // --- ELIMINADO: Ya no necesitamos el btState aquí ---
-                // val btState by bluetoothViewModel.uiState.collectAsState()
-
-                // --- NUEVO: Escuchar al GameManager para la navegación ---
                 val connectionStatus by BluetoothGameManager.connectionStatus.collectAsState()
 
                 LaunchedEffect(connectionStatus) {
                     if (connectionStatus == ConnectionStatus.Connected) {
-                        // Preguntar al ViewModel (que sabe) si es servidor
                         val isServer = bluetoothViewModel.amIServer
-
-                        // Decirle al GameViewModel que inicie
                         gameViewModel.startBluetoothGame(isServer)
-
-                        // Navegar
                         navController?.navigate(GameScreen) {
                             popUpTo(MainMenu)
                         }
-                        // Resetear el estado para evitar bucles
                         BluetoothGameManager.resetConnectionStatus()
                     }
                 }
-                // --- FIN DEL NUEVO CÓDIGO ---
-
 
                 if (showRationaleDialog) {
                     BluetoothRationaleDialog(
@@ -180,7 +159,6 @@ class MainActivity : ComponentActivity() {
                     topBar = {
                         TopGameAppBar(
                             onClickNavigationIcon = {
-                                // --- CAMBIO: Desconectar desde el ViewModel ---
                                 bluetoothViewModel.disconnect()
                                 navController?.popBackStack()
                             },
@@ -208,6 +186,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onStartBluetoothGame = {
                                     checkBluetoothAndPermissions()
+                                },
+                                onGoToSavedGames = {
+                                    navController?.navigate(SavedGamesScreen)
                                 }
                             )
                         }
@@ -217,17 +198,22 @@ class MainActivity : ComponentActivity() {
 									.fillMaxSize()
 									.padding(horizontal = 24.dp),
                                 state = gameState,
-                                onLineSelected = gameViewModel::makeMove
+                                onLineSelected = gameViewModel::makeMove,
+                                onSaveGame = {
+                                    gameViewModel.saveCurrentGame()
+                                    navController?.popBackStack()
+                                }
                             )
                         }
                         composable<HistoryScreen> {
                             val history by gameViewModel.history.collectAsState()
                             HistoryScreen(results = history)
-                            gameViewModel.loadHistory()
+                            LaunchedEffect(Unit) {
+                                gameViewModel.loadHistory()
+                            }
                         }
 
                         composable<BluetoothLobby> {
-                            // --- CAMBIO: El Lobby AHORA usa el btViewModel ---
                             val btLobbyState by bluetoothViewModel.uiState.collectAsState()
                             BluetoothLobbyScreen(
                                 state = btLobbyState,
@@ -240,13 +226,31 @@ class MainActivity : ComponentActivity() {
                                 onConnectToDevice = bluetoothViewModel::connectToDevice
                             )
                         }
+
+                        composable<SavedGamesScreen> {
+                            val savedGames by gameViewModel.savedGames.collectAsState()
+                            SavedGamesScreen(
+                                games = savedGames,
+                                onLoadGame = { fileName ->
+                                    gameViewModel.loadGame(fileName)
+                                    navController?.navigate(GameScreen) {
+                                        popUpTo(MainMenu)
+                                    }
+                                },
+                                onDeleteGame = { fileName ->
+                                    gameViewModel.deleteSavedGame(fileName)
+                                }
+                            )
+                            LaunchedEffect(Unit) {
+                                gameViewModel.loadSavedGames()
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    // (checkBluetoothAndPermissions, openAppSettings, onStop - Sin cambios)
     @SuppressLint("MissingPermission")
     private fun checkBluetoothAndPermissions() {
         val btAdapter = (getSystemService(BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter
@@ -294,7 +298,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// (Diálogos Rationale y Settings sin cambios)
 @Composable
 fun BluetoothRationaleDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(

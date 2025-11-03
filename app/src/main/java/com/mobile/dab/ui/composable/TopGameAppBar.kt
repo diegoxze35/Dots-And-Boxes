@@ -13,7 +13,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.mobile.dab.R
 import com.mobile.dab.ui.GAME_SCREEN
@@ -35,7 +34,8 @@ fun TopGameAppBar(
                 Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge)
                 if (currentScreen == GAME_SCREEN) {
                     Text(
-                        text = if (vsComputer) "Vs Computer" else "Local",
+                        text = if (vsComputer) stringResource(R.string.vs_computer)
+                        else stringResource(R.string.local_game),
                         style = MaterialTheme.typography.titleMedium
                     )
                 }

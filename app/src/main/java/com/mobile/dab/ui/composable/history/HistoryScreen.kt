@@ -12,7 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.mobile.dab.game.GameResult
+import com.mobile.dab.data.entity.GameResult
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale

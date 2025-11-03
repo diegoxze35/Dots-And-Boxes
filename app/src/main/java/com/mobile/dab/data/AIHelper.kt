@@ -1,4 +1,8 @@
-package com.mobile.dab.game
+package com.mobile.dab.data
+
+import com.mobile.dab.domain.Box
+import com.mobile.dab.domain.Line
+import com.mobile.dab.domain.Orientation
 
 object AIHelper {
     // Choose a move: prefer moves that complete boxes, otherwise random
@@ -20,14 +24,26 @@ object AIHelper {
         if (available.isEmpty()) return null
 
         // greedy: if placing a line completes a box, take it
-        val completionMoves = available.filter { moveCompletesAnyBox(move = it, gridRows = gridRows, gridCols = gridCols, placed = placed) }
+        val completionMoves = available.filter {
+            moveCompletesAnyBox(
+                move = it,
+                gridRows = gridRows,
+                gridCols = gridCols,
+                placed = placed
+            )
+        }
         if (completionMoves.isNotEmpty()) return completionMoves.random()
 
         // otherwise random
         return available.random()
     }
 
-    private fun moveCompletesAnyBox(move: Line, gridRows: Int, gridCols: Int, placed: Set<Line>): Boolean {
+    private fun moveCompletesAnyBox(
+        move: Line,
+        gridRows: Int,
+        gridCols: Int,
+        placed: Set<Line>
+    ): Boolean {
         // simulate placing move and check boxes around it
         val newPlaced = placed + move
         // check neighboring boxes
@@ -43,12 +59,12 @@ object AIHelper {
             if (move.col < gridCols - 1) boxesToCheck.add(Box(move.row, move.col))
         }
         for (box in boxesToCheck) {
-            if (isBoxCompleted(box, gridRows, gridCols, newPlaced)) return true
+            if (isBoxCompleted(box, newPlaced)) return true
         }
         return false
     }
 
-    private fun isBoxCompleted(box: Box, gridRows: Int, gridCols: Int, placed: Set<Line>): Boolean {
+    private fun isBoxCompleted(box: Box, placed: Set<Line>): Boolean {
         // box at top-left (row,col) has 4 sides:
         // top: H at (row, col)
         // bottom: H at (row+1, col)
@@ -61,4 +77,3 @@ object AIHelper {
         return top in placed && bottom in placed && left in placed && right in placed
     }
 }
-

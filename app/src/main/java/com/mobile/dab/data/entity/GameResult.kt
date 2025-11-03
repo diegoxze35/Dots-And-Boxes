@@ -1,4 +1,4 @@
-package com.mobile.dab.game
+package com.mobile.dab.data.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -13,4 +13,3 @@ data class GameResult(
     val durationMs: Long,
     val isVsComputer: Boolean
 )
-

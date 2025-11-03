@@ -13,3 +13,6 @@ data object HistoryScreen
 
 @Serializable
 data object BluetoothLobby
+
+@Serializable
+data object SavedGamesScreen

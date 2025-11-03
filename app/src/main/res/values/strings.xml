@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">DotsAndBoxes</string>
+    <string name="app_name">Dots And Boxes</string>
     <string name="two_players">2 Players</string>
     <string name="vs_computer">Vs Computer</string>
-
+    <string name="vs_player">Vs Player</string>
     <string name="bluetooth_multiplayer">Bluetooth Multiplayer</string>
     <string name="bluetooth_permission_rationale_title">Bluetooth Permission</string>
     <string name="bluetooth_permission_rationale_message">Dots &amp; Boxes needs Bluetooth access to find nearby devices and play multiplayer games.</string>
@@ -19,4 +19,15 @@
     <string name="status_connecting_to">Connecting to %1$s…</string>
     <string name="status_connected">Connected. Starting game…</string>
     <string name="status_connection_failed">Connection failed. Please try again.</string>
+    <string name="saved_games">Saved Games</string>
+    <string name="save_game">Save Game</string>
+    <string name="load_game">Load</string>
+    <string name="delete">Delete</string>
+    <string name="no_saved_games">No saved games</string>
+    <string name="local_game">Local</string>
+    <string name="score">Score: %1$d - %2$d</string>
+    <string name="connecting">Connecting…</string>
+    <string name="waiting_for_opponent">Waiting for opponent...</string>
+    <string name="game_over_winner">Game Over! Winner: %1$s</string>
+    <string name="turn">Turn</string>
 </resources>

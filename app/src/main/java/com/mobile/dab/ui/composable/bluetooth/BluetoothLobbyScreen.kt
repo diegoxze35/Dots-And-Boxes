@@ -25,8 +25,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mobile.dab.R
-import com.mobile.dab.bluetooth.BluetoothUiState
-import com.mobile.dab.bluetooth.ConnectionStatus
+import com.mobile.dab.domain.ConnectionStatus
+import com.mobile.dab.ui.composable.bluetooth.state.BluetoothUiState
 
 @SuppressLint("MissingPermission")
 @Composable
@@ -37,7 +37,6 @@ fun BluetoothLobbyScreen(
     onMakeDiscoverable: () -> Unit,
     onConnectToDevice: (BluetoothDevice) -> Unit
 ) {
-    // (El Column y los botones/estados no cambian)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -69,7 +68,7 @@ fun BluetoothLobbyScreen(
             ConnectionStatus.Connecting -> {
                 CircularProgressIndicator()
                 Spacer(Modifier.height(8.dp))
-                Text("Connecting...")
+                Text(stringResource(R.string.connecting))
             }
             ConnectionStatus.Connected -> {
                 Text(stringResource(R.string.status_connected))
@@ -117,12 +116,10 @@ private fun DeviceItem(device: BluetoothDevice, onClick: () -> Unit) {
             .clickable { onClick() }
             .padding(vertical = 8.dp)
     ) {
-        // --- INICIO SOLUCIÓN P1 (Descubrimiento) ---
         Text(
-            text = device.name ?: "Unknown Host", // Mostrar "Unknown Host"
+            text = device.name ?: "Unknown Host",
             fontWeight = FontWeight.Bold
         )
-        // --- FIN SOLUCIÓN P1 ---
         Text(text = device.address, style = MaterialTheme.typography.bodySmall)
     }
 }

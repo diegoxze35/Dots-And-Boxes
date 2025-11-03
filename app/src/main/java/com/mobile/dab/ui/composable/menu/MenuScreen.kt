@@ -19,7 +19,8 @@ import com.mobile.dab.R
 fun MenuScreen(
     modifier: Modifier = Modifier,
     onStartLocalGame: (vsComputer: Boolean) -> Unit,
-    onStartBluetoothGame: () -> Unit // Nuevo callback
+    onStartBluetoothGame: () -> Unit,
+    onGoToSavedGames: () -> Unit // <-- AÑADIR
 ) {
     Column(
         modifier = modifier,
@@ -42,5 +43,12 @@ fun MenuScreen(
             onClick = onStartBluetoothGame,
             modifier = Modifier.fillMaxWidth()
         ) { Text(stringResource(R.string.bluetooth_multiplayer)) }
+        // --- INICIO NUEVO CÓDIGO ---
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = onGoToSavedGames,
+            modifier = Modifier.fillMaxWidth()
+        ) { Text(stringResource(R.string.saved_games)) }
+        // --- FIN NUEVO CÓDIGO ---
     }
 }

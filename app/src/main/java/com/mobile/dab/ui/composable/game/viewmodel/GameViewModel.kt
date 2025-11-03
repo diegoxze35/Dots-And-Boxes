@@ -1,52 +1,42 @@
-package com.mobile.dab.game
+package com.mobile.dab.ui.composable.game.viewmodel
 
 import android.app.Application
-import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.mobile.dab.bluetooth.BluetoothGameManager
+import com.mobile.dab.data.BluetoothGameManager
+import com.mobile.dab.data.AIHelper
+import com.mobile.dab.data.GameRepository
+import com.mobile.dab.data.entity.GameResult
+import com.mobile.dab.data.json.SavedGameState
+import com.mobile.dab.domain.Box
+import com.mobile.dab.domain.Line
+import com.mobile.dab.domain.Orientation
+import com.mobile.dab.domain.Player
+import com.mobile.dab.domain.PlayerType
+import com.mobile.dab.data.SavedGameRepository
+import com.mobile.dab.ui.composable.game.state.GameUiState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-data class GameUiState(
-    val gridRows: Int = 4,
-    val gridCols: Int = 4,
-    val placedLines: Set<Line> = emptySet(),
-    val lineOwners: Map<Line, Int> = emptyMap(),
-    val boxOwners: Map<Box, Int> = emptyMap(),
-    val players: List<Player> = listOf(
-        Player(0, "Player 1", PlayerType.HUMAN),
-        Player(1, "Player 2", PlayerType.COMPUTER)
-    ),
-    val currentPlayerIndex: Int = 0,
-    val scores: Map<Int, Int> = mapOf(0 to 0, 1 to 0),
-    val isGameOver: Boolean = false,
-    val winner: String? = null,
-    val isVsComputer: Boolean = true,
-    val localPlayerIndex: Int = 0,
-    val isMyTurn: Boolean = true,
-    val isBluetoothGame: Boolean = false
-)
-
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = GameRepository(application.applicationContext)
-
+    private val savedGameRepo = SavedGameRepository(application.applicationContext)
+    private val _savedGames = MutableStateFlow<List<SavedGameState>>(emptyList())
+    val savedGames: StateFlow<List<SavedGameState>> = _savedGames.asStateFlow()
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState
-
     private val _history = MutableStateFlow<List<GameResult>>(emptyList())
     val history: StateFlow<List<GameResult>> = _history
-
     private var startTime: Long = 0L
     private var isProcessingMove = false
 
     init {
-        loadHistory()
-
         viewModelScope.launch {
             BluetoothGameManager.incomingMoves
                 .onEach { line -> receiveMove(line) }
@@ -54,7 +44,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // (startNewGame y startBluetoothGame no cambian)
     fun startNewGame(vsComputer: Boolean) {
         val defaultPlayers = if (vsComputer) listOf(
             Player(0, "You", PlayerType.HUMAN),
@@ -82,11 +71,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         val localPlayerIdx = if (isServer) 0 else 1
 
         val players = if (isServer) listOf(
-            Player(0, "Tú (Host)", PlayerType.HUMAN),
-            Player(1, "Oponente (Client)", PlayerType.HUMAN)
+            Player(0, "You (Host)", PlayerType.HUMAN),
+            Player(1, "Opponent (Client)", PlayerType.HUMAN)
         ) else listOf(
-            Player(0, "Oponente (Host)", PlayerType.HUMAN),
-            Player(1, "Tú (Client)", PlayerType.HUMAN)
+            Player(0, "Opponent (Host)", PlayerType.HUMAN),
+            Player(1, "You (Client)", PlayerType.HUMAN)
         )
 
         _uiState.value = GameUiState(
@@ -97,29 +86,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             isMyTurn = (localPlayerIdx == 0)
         )
         startTime = System.currentTimeMillis()
-        Log.d("GameViewModel", "Juego Bluetooth iniciado. Soy jugador: $localPlayerIdx")
     }
 
-    // (makeMove y receiveMove no cambian)
     fun makeMove(line: Line) {
         val current = _uiState.value
-
         if (isProcessingMove || current.isGameOver || line in current.placedLines) return
-
-        if (current.isBluetoothGame && !current.isMyTurn) {
-            Log.w("GameViewModel", "Intento de mover fuera de turno en BT.")
-            return
-        }
-
-        Log.d("GameViewModel", "makeMove (Local) llamado con $line")
+        if (current.isBluetoothGame && !current.isMyTurn) return
         processMoveLogic(line, isLocalMove = true)
     }
 
     private fun receiveMove(line: Line) {
         val current = _uiState.value
         if (!current.isBluetoothGame || isProcessingMove || current.isGameOver || line in current.placedLines) return
-
-        Log.d("GameViewModel", "receiveMove (Remote) llamado con $line")
         processMoveLogic(line, isLocalMove = false)
     }
 
@@ -137,17 +115,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val latest = _uiState.value
 
                 if (line !in latest.placedLines) {
-                    Log.d("GameViewModel", "processMoveLogic abortado: $line no longer present")
                     return@launch
                 }
 
-                // (La lógica de cálculo de cajas y puntajes no cambia)
                 val newPlaced = latest.placedLines
                 val completed = checkCompletedBoxes(
                     line,
                     latest.gridRows,
                     latest.gridCols,
-                    latest.boxOwners.keys,
                     newPlaced
                 )
                 val mutableBoxOwners = latest.boxOwners.toMutableMap()
@@ -182,12 +157,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     isMyTurn = (nextPlayer == latest.localPlayerIndex) || !latest.isBluetoothGame
                 )
 
-                Log.d("GameViewModel", "processMoveLogic completado para $line; Siguiente jugador=$nextPlayer")
-
-                // ---- INICIO DE LA SOLUCIÓN (Problema 1 y 2) ----
-
-                // 1. SOLUCIÓN PROBLEMA 1: Enviar el movimiento ANTES de la lógica de fin de juego.
-                //    Esto asegura que el último movimiento siempre se envíe.
                 if (latest.isBluetoothGame && isLocalMove) {
                     launch(Dispatchers.IO) {
                         BluetoothGameManager.emitOutgoingMove(line)
@@ -197,27 +166,20 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 if (isGameOver) {
                     val duration = System.currentTimeMillis() - startTime
                     val currentState = _uiState.value
-
-                    // 2. SOLUCIÓN PROBLEMA 2: Guardar si es local/AI O si es BT y somos el Host.
-                    //    Esto evita que se guarden partidas duplicadas.
                     if (!currentState.isBluetoothGame || (currentState.isBluetoothGame && currentState.localPlayerIndex == 0)) {
                         saveResultAsync(currentState, duration)
                     }
                 } else {
-                    // El envío de BT ya se hizo. Solo checar si juega la IA.
                     if (!latest.isBluetoothGame && _uiState.value.players[_uiState.value.currentPlayerIndex].type == PlayerType.COMPUTER) {
                         makeAIMoveIfNeeded()
                     }
                 }
-                // ---- FIN DE LA SOLUCIÓN ----
-
             } finally {
                 isProcessingMove = false
             }
         }
     }
 
-    // (El resto de las funciones (determineWinner, checkGameOver, etc.) no cambian)
     private fun determineWinner(scores: Map<Int, Int>, players: List<Player>): String? {
         val p0 = scores[0] ?: 0
         val p1 = scores[1] ?: 0
@@ -244,7 +206,6 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         line: Line,
         gridRows: Int,
         gridCols: Int,
-        existingBoxes: Set<Box>,
         placedWithNew: Set<Line>
     ): List<Box> {
         val boxes = mutableListOf<Box>()
@@ -287,11 +248,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 winner = winnerName,
                 timestamp = System.currentTimeMillis(),
                 durationMs = duration,
-                // --- CAMBIO: Guardar si es BT o VS PC ---
-                isVsComputer = state.isVsComputer// || (state.isBluetoothGame && state.players[1].name.contains("Oponente"))
+                isVsComputer = state.isVsComputer
             )
             repo.saveResult(result)
-            //loadHistory() // Recargar historial
         }
     }
 
@@ -307,10 +266,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val state = _uiState.value
             val move = AIHelper.chooseMove(state.gridRows, state.gridCols, state.placedLines)
             if (move != null) {
-                kotlinx.coroutines.delay(400)
-                Log.d("GameViewModel", "AI chose move $move")
+                delay(400)
                 processMoveLogic(move, isLocalMove = false)
             }
         }
     }
+    fun saveCurrentGame() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val stateToSave = _uiState.value
+            if (stateToSave.isBluetoothGame) return@launch
+            savedGameRepo.saveGame(stateToSave, startTime)
+            loadSavedGames()
+        }
+    }
+
+    fun loadSavedGames() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _savedGames.value = savedGameRepo.getSavedGames()
+        }
+    }
+
+    fun loadGame(fileName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val savedGameState = savedGameRepo.loadGame(fileName)
+            if (savedGameState != null) {
+                launch(Dispatchers.Main) {
+                    _uiState.value = savedGameState.gameState
+                    startTime = savedGameState.startTime
+                }
+            }
+        }
+    }
+
+    fun deleteSavedGame(fileName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            savedGameRepo.deleteGame(fileName)
+            loadSavedGames()
+        }
+    }
+
 }

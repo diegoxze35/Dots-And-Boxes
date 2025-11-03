@@ -24,9 +24,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import com.mobile.dab.game.GameUiState
-import com.mobile.dab.game.Line
-import com.mobile.dab.game.Orientation
+import com.mobile.dab.domain.Line
+import com.mobile.dab.domain.Orientation
+import com.mobile.dab.ui.composable.game.state.GameUiState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -36,17 +36,13 @@ internal fun Board(
 	gridCols: Int,
 	state: GameUiState,
 	onLineSelected: (Line) -> Unit,
-    // --- INICIO SOLUCIÓN P2 (Bloqueo) ---
-    isInteractionEnabled: Boolean,
-    // --- FIN SOLUCIÓN P2 ---
+	isInteractionEnabled: Boolean,
 	onDebug: (String) -> Unit = {}
 ) {
-	// ... (Código de BoxWithConstraints, spacingPx, etc. sin cambios) ...
     BoxWithConstraints(
 		modifier = modifier,
 		contentAlignment = Alignment.Center
 	) {
-        // ... (cálculos de tamaño, colores, anims, etc. sin cambios) ...
 		val maxW = constraints.maxWidth.toFloat()
 		val maxH = constraints.maxHeight.toFloat()
 		val density = LocalDensity.current
@@ -130,14 +126,10 @@ internal fun Board(
 		Canvas(
 			modifier = Modifier
 				.size(with(density) { boardSize.toDp() })
-                // --- INICIO SOLUCIÓN P2 (Bloqueo) ---
-				.pointerInput(state.placedLines, isInteractionEnabled) { // Añadir key
+				.pointerInput(state.placedLines, isInteractionEnabled) {
                     if (!isInteractionEnabled) {
-                        // Si la interacción está desactivada, no hacer nada.
                         return@pointerInput
                     }
-
-                    // Si está habilitada, detectar gestos
 					detectDragGestures(
 						onDragStart = { downPos ->
 							val start =
@@ -213,10 +205,6 @@ internal fun Board(
 						}
 					)
 				}) {
-            // --- FIN SOLUCIÓN P2 ---
-
-            // (Todo el código de dibujo de Canvas (drawRect, drawCircle, drawLine, etc.) no cambia)
-            // ...
 			for (r in 0 until gridRows - 1) {
 				for (c in 0 until gridCols - 1) {
 					val left = offsetX + c * spacingPx
