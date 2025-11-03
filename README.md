@@ -43,3 +43,42 @@ Para desacoplar la lógica del juego de la lógica de conexión, se utiliza un o
 5.  **`GameViewModel`** (del oponente) (recoge el `incomingMove`) -> Procesa el movimiento como si fuera un oponente.
 
 ## 📦 Estructura del Proyecto
+
+```
+com.mobile.dab
+├── MainActivity.kt         # Actividad principal, host de navegación y permisos.
+
+├── bluetooth/              # Lógica de conectividad Bluetooth
+│   ├── BluetoothGameManager.kt # Singleton para desacoplar ViewModels.
+│   └── BluetoothViewModel.kt   # Gestiona estado de escaneo, conexión y sockets.
+
+├── game/                   # Lógica central del juego y persistencia
+│   ├── AIHelper.kt           # Lógica simple para el oponente IA.
+│   ├── AppDatabase.kt        # Definición de la BBDD Room.
+│   ├── GameRepository.kt     # Repositorio para la BBDD (Historial).
+│   ├── GameResult.kt         # Entidad de Room para el historial.
+│   ├── GameResultDao.kt      # DAO para la entidad GameResult.
+│   ├── GameViewModel.kt      # Gestiona el estado de la partida (GameUiState).
+│   └── Models.kt             # Modelos de datos principales (Player, Line, Box).
+
+└── ui/                     # Componentes de UI (Jetpack Compose)
+    ├── GameRoute.kt          # Objetos de destino para Navigation (Serializable).
+    ├── ScreenNames.kt        # Constantes de las rutas.
+    ├── composable/
+    │   ├── TopGameAppBar.kt    # Barra de navegación superior.
+    │   ├── bluetooth/
+    │   │   └── BluetoothLobbyScreen.kt # UI para escanear y conectarse.
+    │   ├── game/
+    │   │   ├── Board.kt            # Lógica de dibujo del tablero.
+    │   │   ├── GamePlayScreen.kt   # Pantalla principal del juego.
+    │   │   └── ScoreBoard.kt       # UI de puntuación y turnos.
+    │   ├── history/
+    │   │   └── HistoryScreen.kt    # UI para mostrar la lista del historial.
+    │   └── menu/
+    │       └── MenuScreen.kt       # Pantalla de menú principal.
+    └── theme/                    # Tema de Material 3
+        ├── Color.kt              # Paleta de colores.
+        ├── Theme.kt              # Configuración del tema (light/dark).
+        └── Type.kt               # Estilos de tipografía.
+
+```
