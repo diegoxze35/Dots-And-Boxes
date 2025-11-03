@@ -82,3 +82,7 @@ com.mobile.dab
         └── Type.kt               # Estilos de tipografía.
 
 ```
+
+
+https://github.com/user-attachments/assets/63a0b69b-f426-4cf0-bec2-7217f8a371f0
+
