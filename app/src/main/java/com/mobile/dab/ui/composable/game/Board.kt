@@ -36,42 +36,40 @@ internal fun Board(
 	gridCols: Int,
 	state: GameUiState,
 	onLineSelected: (Line) -> Unit,
+    // --- INICIO SOLUCIÓN P2 (Bloqueo) ---
+    isInteractionEnabled: Boolean,
+    // --- FIN SOLUCIÓN P2 ---
 	onDebug: (String) -> Unit = {}
 ) {
-	// Make the board responsive: use available size to compute spacing
-	BoxWithConstraints(
+	// ... (Código de BoxWithConstraints, spacingPx, etc. sin cambios) ...
+    BoxWithConstraints(
 		modifier = modifier,
 		contentAlignment = Alignment.Center
 	) {
+        // ... (cálculos de tamaño, colores, anims, etc. sin cambios) ...
 		val maxW = constraints.maxWidth.toFloat()
 		val maxH = constraints.maxHeight.toFloat()
 		val density = LocalDensity.current
 		val paddingPx = with(density) { 16.dp.toPx() }
-		
-		// boardSize = min(width, height) - padding
+
 		val boardSize = (kotlin.math.min(maxW, maxH) - paddingPx * 2).coerceAtLeast(100f)
 		val spacingPx = boardSize / (kotlin.math.max(1, gridCols - 1))
-		
-		// capture colors outside of draw scope
+
 		val colors = MaterialTheme.colorScheme
 		val primaryColor = colors.primary
 		val secondaryColor = colors.secondary
-		
-		// Animatables for lines
+
 		val coroutineScope = rememberCoroutineScope()
 		val lineAnims = remember { mutableStateMapOf<Line, Animatable<Float, AnimationVector1D>>() }
 		val touchAnim = remember { Animatable(0f) }
 		var touchPoint by remember { mutableStateOf<Offset?>(null) }
-		// optimistic pending lines shown immediately on tap until ViewModel confirms
 		val pendingPlaced = remember { mutableStateOf<Map<Line, Int>>(emptyMap()) }
-		// for press+drag interaction
 		var activeStartDot by remember { mutableStateOf<Pair<Int, Int>?>(null) }
 		var validTargets by remember { mutableStateOf(setOf<Pair<Int, Int>>()) }
 		var dragPosition by remember { mutableStateOf<Offset?>(null) }
-		
-		// Sync anim map with placed lines: animate newly added lines and clear pending when ViewModel confirms
-		LaunchedEffect(state.placedLines) {
-			// clear if new game
+
+        // (LaunchedEffect(state.placedLines) sin cambios)
+        LaunchedEffect(state.placedLines) {
 			if (state.placedLines.isEmpty()) {
 				lineAnims.clear()
 				pendingPlaced.value = emptyMap()
@@ -82,23 +80,19 @@ internal fun Board(
 					lineAnims[line] = anim
 					launch { anim.animateTo(1f, animationSpec = tween(350)) }
 				}
-				// remove confirmed lines from pending
 				pendingPlaced.value = pendingPlaced.value.filterKeys { it in state.placedLines }
 			}
-			// clear candidate hint after a short delay
-			// candidateLine = null  // no longer used
 		}
-		
-		// Precompute offsets used both for drawing and hit-testing
+
+        // (Precompute offsets y dots sin cambios)
 		val totalWidth = spacingPx * (gridCols - 1)
 		val totalHeight = spacingPx * (gridRows - 1)
 		val offsetX = (boardSize - totalWidth) / 2f
 		val offsetY = (boardSize - totalHeight) / 2f
-		
-		// precompute dot positions for hit-testing
+
 		val dotRadius =
-			with(density) { 10.dp.toPx() } // increased from 6.dp to make touch area larger
-		val touchThreshold = dotRadius * 2.5f // larger hit area for presses/releases
+			with(density) { 10.dp.toPx() }
+		val touchThreshold = dotRadius * 2.5f
 		val dots = remember(gridRows, gridCols, spacingPx, offsetX, offsetY) {
 			val map = mutableMapOf<Pair<Int, Int>, Offset>()
 			for (r in 0 until gridRows) {
@@ -110,41 +104,42 @@ internal fun Board(
 			}
 			map
 		}
-		
-		// helper to compute available adjacent targets for a given dot
-		fun adjacentAvailableTargets(r: Int, c: Int): Set<Pair<Int, Int>> {
+
+        // (adjacentAvailableTargets helper sin cambios)
+        fun adjacentAvailableTargets(r: Int, c: Int): Set<Pair<Int, Int>> {
 			val res = mutableSetOf<Pair<Int, Int>>()
-			// up (connects to dot r-1,c) -> vertical line at row = r-1, col = c
 			if (r - 1 >= 0) {
 				val line = Line(r - 1, c, Orientation.VERTICAL)
 				if (line !in state.placedLines) res.add(Pair(r - 1, c))
 			}
-			// down (connects to dot r+1,c) -> vertical line at row = r, col = c
 			if (r < gridRows - 1) {
 				val line = Line(r, c, Orientation.VERTICAL)
-				if (line !in state.placedLines) res.add(Pair(r + 1, c)) // target dot at row+1,col
+				if (line !in state.placedLines) res.add(Pair(r + 1, c))
 			}
-			// left (connects to dot r,c-1) -> horizontal line at row = r, col = c-1
 			if (c - 1 >= 0) {
 				val line = Line(r, c - 1, Orientation.HORIZONTAL)
 				if (line !in state.placedLines) res.add(Pair(r, c - 1))
 			}
-			// right (connects to dot r,c+1) -> horizontal line at row = r, col = c
 			if (c < gridCols - 1) {
 				val line = Line(r, c, Orientation.HORIZONTAL)
 				if (line !in state.placedLines) res.add(Pair(r, c + 1))
 			}
 			return res
 		}
-		
-		// pointer input: press on dot -> set activeStartDot and validTargets; drag shows provisional line; release on valid target -> place line
+
 		Canvas(
 			modifier = Modifier
 				.size(with(density) { boardSize.toDp() })
-				.pointerInput(state.placedLines) {
+                // --- INICIO SOLUCIÓN P2 (Bloqueo) ---
+				.pointerInput(state.placedLines, isInteractionEnabled) { // Añadir key
+                    if (!isInteractionEnabled) {
+                        // Si la interacción está desactivada, no hacer nada.
+                        return@pointerInput
+                    }
+
+                    // Si está habilitada, detectar gestos
 					detectDragGestures(
 						onDragStart = { downPos ->
-							// check if down is on a dot
 							val start =
 								dots.entries.minByOrNull { (_, ofs) -> (ofs - downPos).getDistance() }
 							if (start == null) return@detectDragGestures
@@ -158,14 +153,11 @@ internal fun Board(
 							}
 						},
 						onDrag = { change, _ ->
-							// update drag position while dragging
 							if (activeStartDot != null) {
 								dragPosition = change.position
-								// don't call consume* APIs to remain compatible with this Compose version
 							}
 						},
 						onDragEnd = {
-							// release: check if released near any valid target
 							val upPos = dragPosition
 							var matchedTarget: Pair<Int, Int>? = null
 							if (upPos != null && activeStartDot != null) {
@@ -181,20 +173,17 @@ internal fun Board(
 								val (sr, sc) = activeStartDot!!
 								val (tr, tc) = matchedTarget
 								val line = when {
-									// same row, adjacent cols -> HORIZONTAL at row=sr, col=min(sc,tc)
 									sr == tr && kotlin.math.abs(sc - tc) == 1 -> {
 										Line(sr, kotlin.math.min(sc, tc), Orientation.HORIZONTAL)
 									}
-									// same col, adjacent rows -> VERTICAL at row=min(sr,tr), col=sc
 									sc == tc && kotlin.math.abs(sr - tr) == 1 -> {
 										Line(kotlin.math.min(sr, tr), sc, Orientation.VERTICAL)
 									}
-									
+
 									else -> null
 								}
 								if (line != null) {
 									if (line !in state.placedLines && line !in pendingPlaced.value.keys) {
-										// optimistic owner is current player at moment of placement
 										pendingPlaced.value =
 											pendingPlaced.value + (line to state.currentPlayerIndex)
 										if (line !in lineAnims) {
@@ -212,8 +201,7 @@ internal fun Board(
 									}
 								}
 							}
-							
-							// clear drag state
+
 							activeStartDot = null
 							validTargets = emptySet()
 							dragPosition = null
@@ -225,8 +213,10 @@ internal fun Board(
 						}
 					)
 				}) {
-			// draw background grid offset to center (offsetX/offsetY precomputed above)
-			// draw boxes background subtle
+            // --- FIN SOLUCIÓN P2 ---
+
+            // (Todo el código de dibujo de Canvas (drawRect, drawCircle, drawLine, etc.) no cambia)
+            // ...
 			for (r in 0 until gridRows - 1) {
 				for (c in 0 until gridCols - 1) {
 					val left = offsetX + c * spacingPx
@@ -238,8 +228,7 @@ internal fun Board(
 					)
 				}
 			}
-			
-			// draw boxes owners
+
 			for ((box, owner) in state.boxOwners) {
 				val left = offsetX + box.col * spacingPx
 				val top = offsetY + box.row * spacingPx
@@ -253,8 +242,7 @@ internal fun Board(
 					size = Size(right - left, bottom - top)
 				)
 			}
-			
-			// draw dots (and highlight valid targets and active start)
+
 			val dotRadiusLocal = dotRadius
 			for (r in 0 until gridRows) {
 				for (c in 0 until gridCols) {
@@ -268,13 +256,13 @@ internal fun Board(
 							radius = dotRadiusLocal * 1.6f,
 							center = center
 						)
-						
+
 						key in validTargets -> drawCircle(
 							color = secondaryColor,
 							radius = dotRadiusLocal * 1.4f,
 							center = center
 						)
-						
+
 						else -> drawCircle(
 							color = Color.Gray,
 							radius = dotRadiusLocal,
@@ -283,12 +271,10 @@ internal fun Board(
 					}
 				}
 			}
-			
-			// draw placed lines (animated by progress) including optimistic pending ones
+
 			val allLinesKeys: Set<Line> = state.placedLines + pendingPlaced.value.keys
 			for (line in allLinesKeys) {
 				val progress = lineAnims[line]?.value ?: 1f
-				// determine owner: confirmed owner in state.lineOwners or optimistic owner from pendingPlaced, default 0
 				val owner = state.lineOwners[line] ?: pendingPlaced.value[line] ?: 0
 				val lineColor = if (owner == 0) primaryColor else secondaryColor
 				if (line.orientation == Orientation.HORIZONTAL) {
@@ -321,8 +307,7 @@ internal fun Board(
 					)
 				}
 			}
-			
-			// draw the provisional dragged line if active
+
 			dragPosition?.let { dp ->
 				activeStartDot?.let { s ->
 					val sPos = dots[s] ?: return@let
@@ -334,14 +319,11 @@ internal fun Board(
 					)
 				}
 			}
-			
-			// touch ripple
+
 			touchPoint?.let { tp ->
 				val radius = touchAnim.value * (spacingPx * 0.6f)
 				drawCircle(color = primaryColor.copy(alpha = 0.25f), radius = radius, center = tp)
 			}
-			
-			// draw candidate highlight briefly if needed (no-op: we replaced with activeStartDot/validTargets)
 		}
 	}
 }

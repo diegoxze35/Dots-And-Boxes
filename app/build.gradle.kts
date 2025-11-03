@@ -68,6 +68,11 @@ dependencies {
     // https://mvnrepository.com/artifact/androidx.compose.material/material-icons-extended
     implementation(libs.androidx.material.icons.extended)
 
+    // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-serialization
+    implementation(libs.kotlin.serialization)
+    // https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-serialization-json-jvm
+    implementation(libs.kotlinx.serialization.json.jvm)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

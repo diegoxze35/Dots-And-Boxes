@@ -4,17 +4,19 @@ import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mobile.dab.bluetooth.BluetoothGameManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-// UI state exposed to Compose
 data class GameUiState(
-    val gridRows: Int = 4, // dots rows
-    val gridCols: Int = 4, // dots cols
+    val gridRows: Int = 4,
+    val gridCols: Int = 4,
     val placedLines: Set<Line> = emptySet(),
-    val lineOwners: Map<Line, Int> = emptyMap(), // owner index for each placed line
+    val lineOwners: Map<Line, Int> = emptyMap(),
     val boxOwners: Map<Box, Int> = emptyMap(),
     val players: List<Player> = listOf(
         Player(0, "Player 1", PlayerType.HUMAN),
@@ -24,7 +26,10 @@ data class GameUiState(
     val scores: Map<Int, Int> = mapOf(0 to 0, 1 to 0),
     val isGameOver: Boolean = false,
     val winner: String? = null,
-    val isVsComputer: Boolean = true
+    val isVsComputer: Boolean = true,
+    val localPlayerIndex: Int = 0,
+    val isMyTurn: Boolean = true,
+    val isBluetoothGame: Boolean = false
 )
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
@@ -33,18 +38,23 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(GameUiState())
     val uiState: StateFlow<GameUiState> = _uiState
 
-    // History of game results
     private val _history = MutableStateFlow<List<GameResult>>(emptyList())
     val history: StateFlow<List<GameResult>> = _history
 
     private var startTime: Long = 0L
+    private var isProcessingMove = false
 
     init {
-        startNewGame(vsComputer = true)
-        // load persisted history
-        viewModelScope.launch { loadHistory() }
+        loadHistory()
+
+        viewModelScope.launch {
+            BluetoothGameManager.incomingMoves
+                .onEach { line -> receiveMove(line) }
+                .launchIn(this)
+        }
     }
 
+    // (startNewGame y startBluetoothGame no cambian)
     fun startNewGame(vsComputer: Boolean) {
         val defaultPlayers = if (vsComputer) listOf(
             Player(0, "You", PlayerType.HUMAN),
@@ -54,116 +64,160 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             Player(0, "Player 1", PlayerType.HUMAN),
             Player(1, "Player 2", PlayerType.HUMAN)
         )
-        _uiState.value = _uiState.value.copy(
-            placedLines = emptySet(),
-            lineOwners = emptyMap(),
-            boxOwners = emptyMap(),
-            scores = mapOf(0 to 0, 1 to 0),
-            currentPlayerIndex = 0,
+        _uiState.value = GameUiState(
             players = defaultPlayers,
-            isGameOver = false,
-            winner = null,
-            isVsComputer = vsComputer
+            isVsComputer = vsComputer,
+            isBluetoothGame = false,
+            localPlayerIndex = 0,
+            isMyTurn = true
         )
         startTime = System.currentTimeMillis()
 
-        // If computer starts, make a move
-        if (_uiState.value.players[_uiState.value.currentPlayerIndex].type == PlayerType.COMPUTER) {
-            viewModelScope.launch {
-                makeAIMoveIfNeeded()
-            }
+        if (vsComputer && _uiState.value.currentPlayerIndex == 1) {
+            viewModelScope.launch { makeAIMoveIfNeeded() }
         }
     }
 
-    fun makeMove(line: Line) {
-        // Optimistic: reflect the move immediately in uiState so UI sees it right away
-        val current = _uiState.value
-        if (current.isGameOver) return
-        if (line in current.placedLines) return
+    fun startBluetoothGame(isServer: Boolean) {
+        val localPlayerIdx = if (isServer) 0 else 1
 
-        // Apply optimistic placed line and owner (current player)
+        val players = if (isServer) listOf(
+            Player(0, "Tú (Host)", PlayerType.HUMAN),
+            Player(1, "Oponente (Client)", PlayerType.HUMAN)
+        ) else listOf(
+            Player(0, "Oponente (Host)", PlayerType.HUMAN),
+            Player(1, "Tú (Client)", PlayerType.HUMAN)
+        )
+
+        _uiState.value = GameUiState(
+            players = players,
+            isVsComputer = false,
+            isBluetoothGame = true,
+            localPlayerIndex = localPlayerIdx,
+            isMyTurn = (localPlayerIdx == 0)
+        )
+        startTime = System.currentTimeMillis()
+        Log.d("GameViewModel", "Juego Bluetooth iniciado. Soy jugador: $localPlayerIdx")
+    }
+
+    // (makeMove y receiveMove no cambian)
+    fun makeMove(line: Line) {
+        val current = _uiState.value
+
+        if (isProcessingMove || current.isGameOver || line in current.placedLines) return
+
+        if (current.isBluetoothGame && !current.isMyTurn) {
+            Log.w("GameViewModel", "Intento de mover fuera de turno en BT.")
+            return
+        }
+
+        Log.d("GameViewModel", "makeMove (Local) llamado con $line")
+        processMoveLogic(line, isLocalMove = true)
+    }
+
+    private fun receiveMove(line: Line) {
+        val current = _uiState.value
+        if (!current.isBluetoothGame || isProcessingMove || current.isGameOver || line in current.placedLines) return
+
+        Log.d("GameViewModel", "receiveMove (Remote) llamado con $line")
+        processMoveLogic(line, isLocalMove = false)
+    }
+
+    private fun processMoveLogic(line: Line, isLocalMove: Boolean) {
+        if (isProcessingMove) return
+        isProcessingMove = true
+
+        val current = _uiState.value
         val optimisticOwners = current.lineOwners + (line to current.currentPlayerIndex)
         _uiState.value =
             current.copy(placedLines = current.placedLines + line, lineOwners = optimisticOwners)
-        android.util.Log.d(
-            "GameViewModel",
-            "makeMove called optimistically for $line by player ${current.currentPlayerIndex}"
-        )
 
-        // Continue processing game logic asynchronously
         viewModelScope.launch(Dispatchers.Default) {
-            // Re-read the latest snapshot close to where we compute derived state to avoid stomping concurrent updates
-            val latest = _uiState.value // includes optimistic change
+            try {
+                val latest = _uiState.value
 
-            // Defensive: if the line is no longer in the latest placed set, it means something removed it or it was invalid
-            if (line !in latest.placedLines) {
-                android.util.Log.d(
-                    "GameViewModel",
-                    "makeMove aborted: $line no longer present in placedLines"
+                if (line !in latest.placedLines) {
+                    Log.d("GameViewModel", "processMoveLogic abortado: $line no longer present")
+                    return@launch
+                }
+
+                // (La lógica de cálculo de cajas y puntajes no cambia)
+                val newPlaced = latest.placedLines
+                val completed = checkCompletedBoxes(
+                    line,
+                    latest.gridRows,
+                    latest.gridCols,
+                    latest.boxOwners.keys,
+                    newPlaced
                 )
-                return@launch
-            }
+                val mutableBoxOwners = latest.boxOwners.toMutableMap()
+                val scoresMutable = latest.scores.toMutableMap()
+                val mutableLineOwners = latest.lineOwners.toMutableMap()
+                mutableLineOwners[line] = latest.currentPlayerIndex
 
-            // Compute completed boxes and scoring using the latest placed set
-            val newPlaced = latest.placedLines
-
-            val completed = checkCompletedBoxes(
-                line,
-                latest.gridRows,
-                latest.gridCols,
-                latest.boxOwners.keys,
-                newPlaced
-            )
-            val mutableBoxOwners = latest.boxOwners.toMutableMap()
-            val scoresMutable = latest.scores.toMutableMap()
-            // ensure line owner is set (in case optimistic wasn't present)
-            val mutableLineOwners = latest.lineOwners.toMutableMap()
-            mutableLineOwners[line] = latest.currentPlayerIndex
-
-            if (completed.isNotEmpty()) {
-                for (b in completed) {
-                    mutableBoxOwners[b] = latest.currentPlayerIndex
+                if (completed.isNotEmpty()) {
+                    for (b in completed) {
+                        mutableBoxOwners[b] = latest.currentPlayerIndex
+                    }
+                    scoresMutable[latest.currentPlayerIndex] =
+                        (scoresMutable[latest.currentPlayerIndex] ?: 0) + completed.size
                 }
-                scoresMutable[latest.currentPlayerIndex] =
-                    (scoresMutable[latest.currentPlayerIndex] ?: 0) + completed.size
-            }
 
-            var nextPlayer = latest.currentPlayerIndex
-            if (completed.isEmpty()) {
-                nextPlayer = 1 - latest.currentPlayerIndex
-            }
-
-            val isGameOver = checkGameOver(latest.gridRows, latest.gridCols, newPlaced)
-            val winner = if (isGameOver) determineWinner(scoresMutable, latest.players) else null
-
-            // Publish final resolved state based on the most recent snapshot
-            _uiState.value = latest.copy(
-                placedLines = newPlaced,
-                lineOwners = mutableLineOwners.toMap(),
-                boxOwners = mutableBoxOwners.toMap(),
-                scores = scoresMutable.toMap(),
-                currentPlayerIndex = nextPlayer,
-                isGameOver = isGameOver,
-                winner = winner
-            )
-
-            Log.d(
-                "GameViewModel",
-                "makeMove processed $line; completed=${completed.size}; next=$nextPlayer; isGameOver=$isGameOver"
-            )
-
-            if (isGameOver) {
-                val duration = System.currentTimeMillis() - startTime
-                saveResultAsync(_uiState.value, duration)
-            } else {
-                // if next player is computer, trigger AI
-                if (_uiState.value.players[_uiState.value.currentPlayerIndex].type == PlayerType.COMPUTER) {
-                    makeAIMoveIfNeeded()
+                var nextPlayer = latest.currentPlayerIndex
+                if (completed.isEmpty()) {
+                    nextPlayer = 1 - latest.currentPlayerIndex
                 }
+
+                val isGameOver = checkGameOver(latest.gridRows, latest.gridCols, newPlaced)
+                val winner = if (isGameOver) determineWinner(scoresMutable, latest.players) else null
+
+                _uiState.value = latest.copy(
+                    placedLines = newPlaced,
+                    lineOwners = mutableLineOwners.toMap(),
+                    boxOwners = mutableBoxOwners.toMap(),
+                    scores = scoresMutable.toMap(),
+                    currentPlayerIndex = nextPlayer,
+                    isGameOver = isGameOver,
+                    winner = winner,
+                    isMyTurn = (nextPlayer == latest.localPlayerIndex) || !latest.isBluetoothGame
+                )
+
+                Log.d("GameViewModel", "processMoveLogic completado para $line; Siguiente jugador=$nextPlayer")
+
+                // ---- INICIO DE LA SOLUCIÓN (Problema 1 y 2) ----
+
+                // 1. SOLUCIÓN PROBLEMA 1: Enviar el movimiento ANTES de la lógica de fin de juego.
+                //    Esto asegura que el último movimiento siempre se envíe.
+                if (latest.isBluetoothGame && isLocalMove) {
+                    launch(Dispatchers.IO) {
+                        BluetoothGameManager.emitOutgoingMove(line)
+                    }
+                }
+
+                if (isGameOver) {
+                    val duration = System.currentTimeMillis() - startTime
+                    val currentState = _uiState.value
+
+                    // 2. SOLUCIÓN PROBLEMA 2: Guardar si es local/AI O si es BT y somos el Host.
+                    //    Esto evita que se guarden partidas duplicadas.
+                    if (!currentState.isBluetoothGame || (currentState.isBluetoothGame && currentState.localPlayerIndex == 0)) {
+                        saveResultAsync(currentState, duration)
+                    }
+                } else {
+                    // El envío de BT ya se hizo. Solo checar si juega la IA.
+                    if (!latest.isBluetoothGame && _uiState.value.players[_uiState.value.currentPlayerIndex].type == PlayerType.COMPUTER) {
+                        makeAIMoveIfNeeded()
+                    }
+                }
+                // ---- FIN DE LA SOLUCIÓN ----
+
+            } finally {
+                isProcessingMove = false
             }
         }
     }
 
+    // (El resto de las funciones (determineWinner, checkGameOver, etc.) no cambian)
     private fun determineWinner(scores: Map<Int, Int>, players: List<Player>): String? {
         val p0 = scores[0] ?: 0
         val p1 = scores[1] ?: 0
@@ -175,18 +229,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun checkGameOver(gridRows: Int, gridCols: Int, placed: Set<Line>): Boolean {
-        // total boxes = (rows-1)*(cols-1)
         val totalBoxes = (gridRows - 1) * (gridCols - 1)
-        // count owned boxes by checking completed boxes from placed lines
         var completed = 0
         for (r in 0 until gridRows - 1) {
             for (c in 0 until gridCols - 1) {
                 val box = Box(r, c)
-                val top = Line(r, c, Orientation.HORIZONTAL)
-                val bottom = Line(r + 1, c, Orientation.HORIZONTAL)
-                val left = Line(r, c, Orientation.VERTICAL)
-                val right = Line(r, c + 1, Orientation.VERTICAL)
-                if (top in placed && bottom in placed && left in placed && right in placed) completed++
+                if (isBoxCompleted(box, placed)) completed++
             }
         }
         return completed >= totalBoxes
@@ -200,20 +248,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         placedWithNew: Set<Line>
     ): List<Box> {
         val boxes = mutableListOf<Box>()
-        // check neighboring boxes of the placed line
         if (line.orientation == Orientation.HORIZONTAL) {
-            // box above
             if (line.row - 1 >= 0) {
                 val box = Box(line.row - 1, line.col)
                 if (isBoxCompleted(box, placedWithNew)) boxes.add(box)
             }
-            // box below
             if (line.row < gridRows - 1) {
                 val box = Box(line.row, line.col)
                 if (isBoxCompleted(box, placedWithNew)) boxes.add(box)
             }
         } else {
-            // vertical -> left and right
             if (line.col - 1 >= 0) {
                 val box = Box(line.row, line.col - 1)
                 if (isBoxCompleted(box, placedWithNew)) boxes.add(box)
@@ -243,11 +287,11 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 winner = winnerName,
                 timestamp = System.currentTimeMillis(),
                 durationMs = duration,
-                isVsComputer = state.isVsComputer
+                // --- CAMBIO: Guardar si es BT o VS PC ---
+                isVsComputer = state.isVsComputer// || (state.isBluetoothGame && state.players[1].name.contains("Oponente"))
             )
             repo.saveResult(result)
-            // reload history after saving
-            loadHistory()
+            //loadHistory() // Recargar historial
         }
     }
 
@@ -263,10 +307,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             val state = _uiState.value
             val move = AIHelper.chooseMove(state.gridRows, state.gridCols, state.placedLines)
             if (move != null) {
-                // small delay to simulate thinking
                 kotlinx.coroutines.delay(400)
                 Log.d("GameViewModel", "AI chose move $move")
-                makeMove(move)
+                processMoveLogic(move, isLocalMove = false)
             }
         }
     }

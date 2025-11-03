@@ -24,19 +24,23 @@ internal fun ScoreBoard(state: GameUiState) {
 		Column(horizontalAlignment = Alignment.CenterHorizontally) {
 			Text(text = p0)
 			Text(text = score0.toString(), fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            // --- INICIO SOLUCIÓN P2 (Turno UI) ---
 			if (state.currentPlayerIndex == 0) Text(
-				"Your Turn",
+				"Turn", // Simplificado
 				color = MaterialTheme.colorScheme.primary
 			)
+            // --- FIN SOLUCIÓN P2 ---
 		}
-		
+
 		Column(horizontalAlignment = Alignment.CenterHorizontally) {
 			Text(text = p1)
 			Text(text = score1.toString(), fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            // --- INICIO SOLUCIÓN P2 (Turno UI) ---
 			if (state.currentPlayerIndex == 1) Text(
-				"Their Turn",
+				"Turn", // Simplificado
 				color = MaterialTheme.colorScheme.secondary
 			)
+            // --- FIN SOLUCIÓN P2 ---
 		}
 	}
 }
